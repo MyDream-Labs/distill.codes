@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private support
+    url: mailto:support@distill.codes
+    about: Billing, account, security-sensitive, or private project details.
+  - name: Distill.codes
+    url: https://distill.codes
+    about: Product website and dashboard.

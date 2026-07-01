@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest a new capability or product improvement.
+title: "[Feature]: "
+labels: ["feature", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea.
+
+        Do not include API keys, proxy URLs, billing details, private source code,
+        private prompts, logs, or customer data.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like Distill to do?
+    validations:
+      required: true
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Which agent or workflow is this for?
+      options:
+        - Codex
+        - Claude
+        - Both
+        - Other
+    validations:
+      required: false
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - Nice to have
+        - Important
+        - Blocking
+    validations:
+      required: false

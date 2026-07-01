@@ -1,0 +1,25 @@
+name: General feedback
+description: Share product feedback that is not a bug or feature request.
+title: "[Feedback]: "
+labels: ["feedback", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the feedback.
+
+        Do not include API keys, proxy URLs, billing details, private source code,
+        private prompts, logs, or customer data.
+  - type: textarea
+    id: feedback
+    attributes:
+      label: What should be better?
+    validations:
+      required: true
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What were you trying to do?
+    validations:
+      required: false
