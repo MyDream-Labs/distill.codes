@@ -1,0 +1,40 @@
+{
+  "name": "distill-codes",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Distill.codes setup and benchmark helper CLI.",
+  "type": "module",
+  "homepage": "https://distill.codes",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MyDream-Labs/distill.codes.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MyDream-Labs/distill.codes/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "benchmark",
+    "llm",
+    "coding-agent",
+    "distill-codes"
+  ],
+  "bin": {
+    "distill-codes": "./bin/distill-codes.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test",
+    "check": "npm test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "commander": "^14.0.2"
+  }
+}

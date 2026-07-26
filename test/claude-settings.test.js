@@ -1,0 +1,100 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { clearBaseURL, disableProxy, enableProxy } from "../src/claude-settings.js";
+
+test("enable writes distill URL and full backup", async () => {
+  const home = await mkdtemp(join(tmpdir(), "distill-home-"));
+  const claudeDir = join(home, ".claude");
+  await writeJSON(join(claudeDir, "settings.json"), {
+    theme: "dark",
+    env: {
+      ANTHROPIC_BASE_URL: "https://example.com/custom",
+      KEEP_ME: "yes"
+    }
+  });
+
+  await enableProxy("https://proxy.distill.codes/key123456/essential/anthropic", {
+    home,
+    preflight: async () => {}
+  });
+
+  assert.deepEqual(await readJSON(join(claudeDir, "settings.json")), {
+    theme: "dark",
+    env: {
+      ANTHROPIC_BASE_URL: "https://proxy.distill.codes/key123456/essential/anthropic",
+      KEEP_ME: "yes"
+    }
+  });
+  assert.deepEqual(await readJSON(join(claudeDir, "settings.distill-codes-backup.json")), {
+    theme: "dark",
+    env: {
+      ANTHROPIC_BASE_URL: "https://example.com/custom",
+      KEEP_ME: "yes"
+    }
+  });
+});
+
+test("disable restores only previous ANTHROPIC_BASE_URL", async () => {
+  const home = await mkdtemp(join(tmpdir(), "distill-home-"));
+  const claudeDir = join(home, ".claude");
+  await writeJSON(join(claudeDir, "settings.json"), {
+    theme: "light",
+    env: {
+      ANTHROPIC_BASE_URL: "https://proxy.distill.codes/key123456/essential/anthropic",
+      AFTER_ENABLE: "preserve"
+    }
+  });
+  await writeJSON(join(claudeDir, "settings.distill-codes-backup.json"), {
+    theme: "dark",
+    env: {
+      ANTHROPIC_BASE_URL: "https://example.com/custom",
+      BEFORE_ENABLE: "backup-only"
+    }
+  });
+
+  const result = await disableProxy({ home });
+
+  assert.equal(result.changed, true);
+  assert.deepEqual(await readJSON(join(claudeDir, "settings.json")), {
+    theme: "light",
+    env: {
+      ANTHROPIC_BASE_URL: "https://example.com/custom",
+      AFTER_ENABLE: "preserve"
+    }
+  });
+});
+
+test("disable leaves non-distill URL unchanged", async () => {
+  const home = await mkdtemp(join(tmpdir(), "distill-home-"));
+  const settings = join(home, ".claude", "settings.json");
+  await writeJSON(settings, { env: { ANTHROPIC_BASE_URL: "https://example.com/custom" } });
+
+  const result = await disableProxy({ home });
+
+  assert.equal(result.changed, false);
+  assert.deepEqual(await readJSON(settings), { env: { ANTHROPIC_BASE_URL: "https://example.com/custom" } });
+});
+
+test("clear-base-url removes any configured base URL", async () => {
+  const home = await mkdtemp(join(tmpdir(), "distill-home-"));
+  const settings = join(home, ".claude", "settings.json");
+  await writeJSON(settings, { env: { ANTHROPIC_BASE_URL: "https://example.com/custom", KEEP_ME: "yes" } });
+
+  const result = await clearBaseURL({ home });
+
+  assert.equal(result.changed, true);
+  assert.deepEqual(await readJSON(settings), { env: { KEEP_ME: "yes" } });
+});
+
+async function writeJSON(file, value) {
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function readJSON(file) {
+  return JSON.parse(await readFile(file, "utf8"));
+}
