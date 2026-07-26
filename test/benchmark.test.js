@@ -19,6 +19,7 @@ test("benchmark runs direct and distill cases with fake Claude", async () => {
     claudeBin: fakeClaude,
     outputDir: join(root, "out"),
     timeoutMs: 10_000,
+    share: true,
     onPlan: (value) => {
       planned = value;
     }
@@ -31,6 +32,7 @@ test("benchmark runs direct and distill cases with fake Claude", async () => {
   assert.equal(report.runs.distill.usage.output_tokens, 60);
   assert.equal(report.comparison.output_tokens_delta, -40);
   assert.match(await readFile(join(runRoot, "report.md"), "utf8"), /Distill\.codes Benchmark Report/);
+  assert.match(await readFile(join(runRoot, "share.md"), "utf8"), /Nothing was uploaded by the CLI/);
 
   const directSettings = JSON.parse(await readFile(join(runRoot, "direct", "seen-settings.json"), "utf8"));
   const distillSettings = JSON.parse(await readFile(join(runRoot, "distill", "seen-settings.json"), "utf8"));

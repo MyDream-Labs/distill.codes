@@ -21,11 +21,12 @@ export async function main(argv = process.argv) {
     .option("--claude-bin <path>", "Claude Code binary", "claude")
     .option("--timeout-ms <ms>", "per-run timeout", parseNumber)
     .option("--permission-mode <mode>", "Claude permission mode", "bypassPermissions")
+    .option("--share", "write a local social-sharing helper after the report")
     .action(async (input, options) => {
       const proxyURL = normalizeProxyInput(input);
       await preflightProxy(proxyURL);
       console.log(`Proxy URL: ${redactProxyURL(proxyURL)}`);
-      const { runRoot, report } = await runBenchmark({
+      const { runRoot, report, sharePath } = await runBenchmark({
         ...options,
         proxyURL,
         onPlan: (planned) => {
@@ -34,6 +35,9 @@ export async function main(argv = process.argv) {
         }
       });
       console.log(`Report: ${runRoot}/report.md`);
+      if (sharePath) {
+        console.log(`Share helper: ${sharePath}`);
+      }
       console.log(`Direct passed: ${report.runs.direct.ok ? "yes" : "no"}`);
       console.log(`Distill passed: ${report.runs.distill.ok ? "yes" : "no"}`);
     });

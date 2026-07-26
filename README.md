@@ -121,6 +121,15 @@ npx distill-codes bench <proxy-key> --prompt-file ./my-task.md
 
 Custom prompts are saved and reported, but verification is manual.
 
+Optional local sharing helper:
+
+```sh
+npx distill-codes bench <proxy-key> --share
+```
+
+This writes `share.md` next to the report with suggested text and social
+sharing links. It does not upload benchmark data.
+
 ## Benchmark Output
 
 Every benchmark saves local files before printing a summary:
@@ -150,7 +159,7 @@ The CLI does not upload benchmark results.
 It stores benchmark prompts, logs, and reports locally in
 `./distill-codes-bench/`. Review those files before sharing them publicly.
 
-Future upload or social sharing flows will be explicit opt-in.
+Future upload flows will be explicit opt-in.
 
 ## Requirements
 

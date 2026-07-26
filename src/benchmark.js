@@ -70,7 +70,11 @@ export async function runBenchmark(options) {
 
   await writeFile(join(runRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
   await writeFile(join(runRoot, "report.md"), renderMarkdown(report));
-  return { runRoot, report };
+  const sharePath = options.share ? join(runRoot, "share.md") : null;
+  if (sharePath) {
+    await writeFile(sharePath, renderShareMarkdown(report));
+  }
+  return { runRoot, report, sharePath };
 }
 
 async function runCase({ name, runRoot, prompt, proxyURL, env, options, customPrompt }) {
@@ -313,6 +317,39 @@ ${rows}
 - Files delta: ${report.comparison.files_delta}
 - Output token delta: ${report.comparison.output_tokens_delta ?? "unknown"}
 `;
+}
+
+function renderShareMarkdown(report) {
+  const text = shareText(report);
+  const benchmarkURL = "https://distill.codes/bench";
+  const encodedText = encodeURIComponent(text);
+  const encodedURL = encodeURIComponent(benchmarkURL);
+  return `# Share Distill.codes Benchmark Result
+
+Review \`report.md\` before sharing. Nothing was uploaded by the CLI.
+
+## Suggested Text
+
+${text}
+
+## Share Links
+
+- X: https://x.com/intent/tweet?text=${encodedText}&url=${encodedURL}
+- LinkedIn: https://www.linkedin.com/sharing/share-offsite/?url=${encodedURL}
+- Facebook: https://www.facebook.com/sharer/sharer.php?u=${encodedURL}
+`;
+}
+
+function shareText(report) {
+  const direct = report.runs.direct;
+  const distill = report.runs.distill;
+  const outputDelta = report.comparison.output_tokens_delta;
+  const outputSummary = outputDelta == null ? "output token delta unavailable" : `output token delta ${formatDelta(outputDelta)}`;
+  return `I ran the Distill.codes Claude Code benchmark. Direct: ${direct.ok ? "passed" : "failed"}, Distill.codes: ${distill.ok ? "passed" : "failed"}, ${outputSummary}, LOC delta ${formatDelta(report.comparison.loc_delta)}. Results vary by task.`;
+}
+
+function formatDelta(value) {
+  return value > 0 ? `+${value}` : `${value}`;
 }
 
 function timestamp(date) {
