@@ -20,7 +20,7 @@
     "distill-codes"
   ],
   "bin": {
-    "distill-codes": "./bin/distill-codes.js"
+    "distill-codes": "bin/distill-codes.js"
   },
   "files": [
     "bin",
