@@ -29,7 +29,8 @@
   ],
   "scripts": {
     "test": "node --test",
-    "check": "npm test"
+    "check": "npm test",
+    "prepublishOnly": "npm test"
   },
   "engines": {
     "node": ">=20"
