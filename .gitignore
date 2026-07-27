@@ -2,5 +2,4 @@ node_modules/
 distill-codes-bench/
 *.log
 /.idea/
-/.reviews/
-REVIEW-PLAN.md
+STEP.md
