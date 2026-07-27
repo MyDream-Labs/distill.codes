@@ -80,7 +80,9 @@ export async function writeTemporarySettings(file, env) {
 export async function readSettings(file, options = {}) {
   try {
     const text = await readFile(file, "utf8");
-    return JSON.parse(text);
+    const settings = JSON.parse(text);
+    ensureSettingsObject(settings, file);
+    return settings;
   } catch (error) {
     if (error?.code === "ENOENT") {
       return options.missing === null ? null : {};
@@ -89,6 +91,12 @@ export async function readSettings(file, options = {}) {
       throw new Error(`Invalid JSON in ${file}. Fix it before changing Claude Code settings.`);
     }
     throw error;
+  }
+}
+
+function ensureSettingsObject(settings, file) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    throw new Error(`Expected JSON root in ${file} to be an object.`);
   }
 }
 
