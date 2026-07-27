@@ -122,10 +122,10 @@ distill-codes-bench/<timestamp>/direct
 distill-codes-bench/<timestamp>/distill
 ```
 
-Benchmark sessions do not resume or persist Claude conversations. They load
-user settings for the saved model and effort, while disabling project/local
-settings, CLAUDE.md files, auto-memory, and hooks for a reproducible task
-context.
+Benchmark sessions use unique English names for the direct and Distill.codes
+runs and do not resume or persist Claude conversations. They load user settings
+for the saved model and effort, while disabling project/local settings,
+CLAUDE.md files, auto-memory, and hooks for a reproducible task context.
 
 The default task asks Claude Code to implement a tiny dependency-free secret
 scanner. A local verifier checks the result automatically.
@@ -182,7 +182,7 @@ The report includes:
 - pass/fail status;
 - elapsed time and Claude Code turns;
 - files and LOC generated;
-- output token usage and Claude Code-reported cost when Claude Code exposes them;
+- output token usage;
 - actual primary model, context window, maximum output, and all used models when Claude Code exposes them;
 - the configured effort value and runtime speed when available;
 - direct and Distill.codes values, plus absolute and percentage changes when the runtime configurations match.
@@ -191,10 +191,11 @@ The terminal prints the same aligned comparison table as `report.md`.
 If the primary model, context window, or maximum output differs, the report
 marks the runs as not comparable and omits misleading deltas.
 
-Reported cost comes from Claude Code's `total_cost_usd`. It includes input,
-cache, and output usage, but is an estimate and may not match an API invoice or
-subscription charge. Per-model cache and cost details remain available in
-`report.json` without adding input-token rows to the console table.
+Distill.codes starts with a separate cold cache that warms with use, so run the
+benchmark several times for more stable results. Input, cache, and Claude
+Code-reported cost details are summarized only in `report.json` for reference.
+The reported cost is cache-dependent and may not match an API invoice or
+subscription charge.
 
 ## Security and Privacy
 

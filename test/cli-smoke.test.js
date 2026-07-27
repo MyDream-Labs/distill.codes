@@ -103,8 +103,7 @@ test("CLI bench reports progress before direct and Distill runs", async () => {
               duration_ms: { direct: 1000, distill: 800, delta: -200, percent: -20 },
               turns: { direct: 10, distill: 8, delta: -2, percent: -20 },
               loc: { direct: 20, distill: 15, delta: -5, percent: -25 },
-              files: { direct: 2, distill: 1, delta: -1, percent: -50 },
-              price_usd: { direct: 0.01, distill: 0.005, delta: -0.005, percent: -50 }
+              files: { direct: 2, distill: 1, delta: -1, percent: -50 }
             }
           },
           sharePath: null
@@ -121,7 +120,7 @@ test("CLI bench reports progress before direct and Distill runs", async () => {
     "Running Distill.codes benchmark..."
   ]);
   assert.match(messages[5], /Output tokens/);
-  assert.match(messages[5], /Reported cost \(USD\)/);
+  assert.doesNotMatch(messages[5], /cost|USD/i);
   assert.match(messages[5], /Comparison: comparable/);
   assert.match(messages[5], /Direct primary: test-model \(1,000,000 context, 64,000 max output\)/);
   assert.match(messages[5], /Direct models: test-model/);

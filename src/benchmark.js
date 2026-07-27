@@ -25,7 +25,8 @@ Keep the implementation compact and dependency-free.`;
 export async function runBenchmark(options) {
   const startedAt = new Date();
   const outputRoot = options.outputDir ?? join(process.cwd(), "distill-codes-bench");
-  const runRoot = join(outputRoot, timestamp(startedAt));
+  const runID = timestamp(startedAt);
+  const runRoot = join(outputRoot, runID);
   const prompt = options.promptFile ? await readFile(options.promptFile, "utf8") : DEFAULT_PROMPT;
   const customPrompt = Boolean(options.promptFile);
 
@@ -49,7 +50,8 @@ export async function runBenchmark(options) {
     env: isolatedBenchmarkEnv(baseEnv, ""),
     options,
     planned,
-    customPrompt
+    customPrompt,
+    sessionName: `distill-codes-benchmark-direct-${runID}`
   });
   const distill = await runCase({
     name: "distill",
@@ -59,7 +61,8 @@ export async function runBenchmark(options) {
     env: isolatedBenchmarkEnv(baseEnv, options.proxyURL),
     options,
     planned,
-    customPrompt
+    customPrompt,
+    sessionName: `distill-codes-benchmark-distill-${runID}`
   });
 
   const report = {
@@ -69,9 +72,10 @@ export async function runBenchmark(options) {
     prompt_file: options.promptFile ?? null,
     proxy_url: redactProxyURL(options.proxyURL),
     planned,
-    cost: {
+    anthropic_reported_cost: {
       source: "claude_code_total_cost_usd",
-      note: "Claude Code-reported estimate; includes input, cache, and output usage and may not match billing."
+      visibility: "report_json_only",
+      note: "Reference only. This cache-dependent Claude Code estimate may not match API billing or a subscription charge."
     },
     runs: { direct, distill },
     comparison: compareRuns(direct, distill)
@@ -86,7 +90,7 @@ export async function runBenchmark(options) {
   return { runRoot, report, sharePath };
 }
 
-async function runCase({ name, runRoot, prompt, proxyURL, env, options, planned, customPrompt }) {
+async function runCase({ name, runRoot, prompt, proxyURL, env, options, planned, customPrompt, sessionName }) {
   const workdir = join(runRoot, name);
   await makePrivateDir(workdir);
   await writePrivateFile(join(workdir, "TASK.md"), prompt);
@@ -100,7 +104,10 @@ async function runCase({ name, runRoot, prompt, proxyURL, env, options, planned,
     "--setting-sources",
     "user",
     "--output-format",
-    "json",
+    "stream-json",
+    "--verbose",
+    "--name",
+    sessionName,
     "--no-session-persistence",
     "--permission-mode",
     options.permissionMode ?? "acceptEdits",
@@ -127,32 +134,37 @@ async function runCase({ name, runRoot, prompt, proxyURL, env, options, planned,
   await writePrivateFile(join(runRoot, `${name}.stdout.log`), result.stdout);
   await writePrivateFile(join(runRoot, `${name}.stderr.log`), result.stderr);
 
-  const parsed = parseJSONOutput(result.stdout);
+  const stream = parseJSONStream(result.stdout);
+  const parsed = stream.result;
   const verifier = customPrompt ? { ok: null, mode: "manual", message: "Custom prompt verification is manual." } : await verifySecretScanner(workdir);
   const files = await collectFiles(workdir);
   const modelUsage = extractModelUsage(parsed);
   const primaryModel = selectPrimaryModel(modelUsage);
   const models = [...new Set(modelUsage.map(({ canonical_model }) => canonical_model))];
-  const usage = extractUsage(parsed);
+  const usage = aggregateModelUsage(modelUsage);
+  const claudeSucceeded = parsed?.type === "result" && parsed.subtype === "success" && parsed.is_error !== true;
 
   return {
     name,
+    session_name: sessionName,
     proxy_url: proxyURL ? redactProxyURL(proxyURL) : null,
     proxy_enabled: Boolean(proxyURL),
-    ok: result.status === 0 && verifier.ok !== false,
+    ok: result.status === 0 && claudeSucceeded && verifier.ok !== false,
     exit_status: result.status,
+    stream: {
+      events: stream.events.length,
+      invalid_lines: stream.invalidLines
+    },
     duration_ms: Date.now() - startedAt,
     model: models.join(", ") || options.model || "not reported",
     models,
     model_usage: modelUsage,
     primary_model: primaryModel,
     reasoning_effort: planned.effort,
-    speed: findFirstKey(parsed, ["speed"]),
+    speed: findFirstKey(stream.events, ["speed"]),
     turns: findFirstNumber(parsed, ["num_turns", "numTurns"]),
-    usage: {
-      output_tokens: sumModelOutputTokens(modelUsage) ?? usage?.output_tokens ?? null
-    },
-    price_usd: findFirstNumber(parsed, ["total_cost_usd", "totalCostUsd"]),
+    usage,
+    anthropic_reported_cost_usd: findFirstNumber(parsed, ["total_cost_usd", "totalCostUsd"]),
     verifier,
     files: files.length,
     loc: await countLOC(files),
@@ -275,38 +287,21 @@ async function writePrivateFile(path, contents) {
   await chmod(path, 0o600);
 }
 
-function parseJSONOutput(stdout) {
-  try {
-    return JSON.parse(stdout);
-  } catch {
-    return null;
-  }
-}
-
-function extractUsage(value) {
-  const usage = findUsage(value);
-  if (!usage) {
-    return null;
-  }
-  return {
-    output_tokens: usage.output_tokens ?? usage.outputTokens ?? null
-  };
-}
-
-function findUsage(value) {
-  if (!value || typeof value !== "object") {
-    return null;
-  }
-  if ("input_tokens" in value || "output_tokens" in value || "inputTokens" in value || "outputTokens" in value) {
-    return value;
-  }
-  for (const child of Object.values(value)) {
-    const found = Array.isArray(child) ? child.map(findUsage).find(Boolean) : findUsage(child);
-    if (found) {
-      return found;
+function parseJSONStream(stdout) {
+  const events = [];
+  let invalidLines = 0;
+  for (const line of stdout.split(/\r?\n/)) {
+    if (!line.trim()) {
+      continue;
+    }
+    try {
+      events.push(JSON.parse(line));
+    } catch {
+      invalidLines++;
     }
   }
-  return null;
+  const result = events.findLast((event) => event?.type === "result") ?? null;
+  return { events, invalidLines, result };
 }
 
 function findFirstKey(value, keys) {
@@ -359,7 +354,7 @@ function extractModelUsage(value) {
     cache_creation_input_tokens: usage?.cacheCreationInputTokens ?? null,
     cache_read_input_tokens: usage?.cacheReadInputTokens ?? null,
     output_tokens: usage?.outputTokens ?? null,
-    cost_usd: usage?.costUSD ?? null,
+    anthropic_reported_cost_usd: usage?.costUSD ?? null,
     provider: usage?.provider ?? null
   }));
 }
@@ -368,8 +363,17 @@ function selectPrimaryModel(modelUsage) {
   return modelUsage.toSorted((left, right) => (right.output_tokens ?? 0) - (left.output_tokens ?? 0))[0] ?? null;
 }
 
-function sumModelOutputTokens(modelUsage) {
-  const values = modelUsage.map(({ output_tokens }) => output_tokens).filter((value) => typeof value === "number" && Number.isFinite(value));
+function aggregateModelUsage(modelUsage) {
+  return {
+    input_tokens: sumModelMetric(modelUsage, "input_tokens"),
+    cache_creation_input_tokens: sumModelMetric(modelUsage, "cache_creation_input_tokens"),
+    cache_read_input_tokens: sumModelMetric(modelUsage, "cache_read_input_tokens"),
+    output_tokens: sumModelMetric(modelUsage, "output_tokens")
+  };
+}
+
+function sumModelMetric(modelUsage, key) {
+  const values = modelUsage.map((usage) => usage[key]).filter((value) => typeof value === "number" && Number.isFinite(value));
   return values.length ? values.reduce((total, value) => total + value, 0) : null;
 }
 
@@ -393,12 +397,27 @@ function compareRuns(direct, distill) {
   const compatibility = compareRuntime(direct, distill);
   return {
     ...compatibility,
+    input_tokens: compareMetric(direct.usage?.input_tokens, distill.usage?.input_tokens, compatibility.comparable),
+    cache_creation_input_tokens: compareMetric(
+      direct.usage?.cache_creation_input_tokens,
+      distill.usage?.cache_creation_input_tokens,
+      compatibility.comparable
+    ),
+    cache_read_input_tokens: compareMetric(
+      direct.usage?.cache_read_input_tokens,
+      distill.usage?.cache_read_input_tokens,
+      compatibility.comparable
+    ),
     output_tokens: compareMetric(direct.usage?.output_tokens, distill.usage?.output_tokens, compatibility.comparable),
     duration_ms: compareMetric(direct.duration_ms, distill.duration_ms, compatibility.comparable),
     turns: compareMetric(direct.turns, distill.turns, compatibility.comparable),
     loc: compareMetric(direct.loc, distill.loc, compatibility.comparable),
     files: compareMetric(direct.files, distill.files, compatibility.comparable),
-    price_usd: compareMetric(direct.price_usd, distill.price_usd, compatibility.comparable)
+    anthropic_reported_cost_usd: compareMetric(
+      direct.anthropic_reported_cost_usd,
+      distill.anthropic_reported_cost_usd,
+      compatibility.comparable
+    )
   };
 }
 
@@ -450,11 +469,12 @@ function renderMarkdown(report) {
 - Proxy: ${report.proxy_url}
 - Started: ${report.started_at}
 - Comparison: ${formatComparisonStatus(report.comparison)}
-- Cost: Claude Code-reported estimate from \`total_cost_usd\`; includes input, cache, and output usage and may not match billing.
 
 | Metric | Direct | Distill.codes | Delta | Change |
 | --- | ---: | ---: | ---: | ---: |
 ${renderMarkdownRows(report.comparison)}
+
+> Note: Distill.codes does not initially reuse the cache created by direct Claude traffic. Its cache warms over time, so latency and Anthropic-reported costs may improve. Run the benchmark several times for more stable results. Anthropic-reported costs are available in report.json for reference.
 
 ## Result
 
@@ -485,7 +505,7 @@ export function renderConsoleSummary(report) {
       formatPercent(comparison.percent)
     ]);
   }
-  return `Benchmark summary\nComparison: ${formatComparisonStatus(report.comparison)}\n\n${table.toString()}\n\nCost source: Claude Code total_cost_usd (reported estimate; includes cache usage and may not match billing)\n\nRuntime\n  Direct primary: ${formatPrimaryRuntime(report.runs.direct)}\n  Distill.codes primary: ${formatPrimaryRuntime(report.runs.distill)}\n  Direct models: ${formatModels(report.runs.direct)}\n  Distill.codes models: ${formatModels(report.runs.distill)}\n  Direct effort setting: ${report.runs.direct.reasoning_effort}\n  Distill.codes effort setting: ${report.runs.distill.reasoning_effort}\n\nResult: Direct ${formatResult(report.runs.direct)}; Distill.codes ${formatResult(report.runs.distill)}`;
+  return `Benchmark summary\nComparison: ${formatComparisonStatus(report.comparison)}\n\n${table.toString()}\n\nRuntime\n  Direct primary: ${formatPrimaryRuntime(report.runs.direct)}\n  Distill.codes primary: ${formatPrimaryRuntime(report.runs.distill)}\n  Direct models: ${formatModels(report.runs.direct)}\n  Distill.codes models: ${formatModels(report.runs.distill)}\n  Direct effort setting: ${report.runs.direct.reasoning_effort}\n  Distill.codes effort setting: ${report.runs.distill.reasoning_effort}\n\nResult: Direct ${formatResult(report.runs.direct)}; Distill.codes ${formatResult(report.runs.distill)}`;
 }
 
 function renderMarkdownRows(comparison) {
@@ -500,8 +520,7 @@ function summaryMetrics(comparison) {
     ["Time", comparison.duration_ms, formatDuration],
     ["Turns", comparison.turns, formatInteger],
     ["LOC", comparison.loc, formatInteger],
-    ["Files", comparison.files, formatInteger],
-    ["Reported cost (USD)", comparison.price_usd, formatPrice]
+    ["Files", comparison.files, formatInteger]
   ];
 }
 
@@ -535,10 +554,6 @@ function formatInteger(value) {
 
 function formatDuration(value) {
   return value == null ? "n/a" : `${(value / 1000).toFixed(1)}s`;
-}
-
-function formatPrice(value) {
-  return value == null ? "n/a" : `$${value.toFixed(3)}`;
 }
 
 function formatComparisonDelta(value, format) {
