@@ -297,6 +297,10 @@ support@distill.codes
 
 ## License
 
-No distribution license has been selected for this repository yet. Do not assume
-permission to reuse, redistribute, or contribute code beyond applicable law
-until the project owner publishes a license.
+Copyright 2026 MyDream Labs.
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
+This license covers the source code in this repository only. It does not grant
+rights to the Distill.codes name or trademarks, hosted proxy service, dashboard,
+or user credentials.

@@ -2,6 +2,7 @@
   "name": "distill-codes",
   "version": "0.1.0",
   "private": false,
+  "license": "Apache-2.0",
   "description": "Distill.codes setup and benchmark helper CLI.",
   "type": "module",
   "homepage": "https://distill.codes",
