@@ -22,6 +22,9 @@ Detect:
 Ignore node_modules, .git, binary files, and scan-secrets.mjs itself.
 Keep the implementation compact and dependency-free.`;
 
+const SONNET_WARNING =
+  "WARNING: Sonnet is not recommended for this benchmark because its Distill.codes gains are typically small and unstable. Use Fable or Opus with xhigh effort for a stronger, more reliable signal.";
+
 export async function runBenchmark(options) {
   const startedAt = new Date();
   const outputRoot = options.outputDir ?? join(process.cwd(), "distill-codes-bench");
@@ -470,6 +473,7 @@ function renderMarkdown(report) {
 - Started: ${report.started_at}
 - Comparison: ${formatComparisonStatus(report.comparison)}
 
+${renderMarkdownModelWarning(report)}
 | Metric | Direct | Distill.codes | Delta | Change |
 | --- | ---: | ---: | ---: | ---: |
 ${renderMarkdownRows(report.comparison)}
@@ -505,7 +509,20 @@ export function renderConsoleSummary(report) {
       formatPercent(comparison.percent)
     ]);
   }
-  return `Benchmark summary\nComparison: ${formatComparisonStatus(report.comparison)}\n\n${table.toString()}\n\nRuntime\n  Direct primary: ${formatPrimaryRuntime(report.runs.direct)}\n  Distill.codes primary: ${formatPrimaryRuntime(report.runs.distill)}\n  Direct models: ${formatModels(report.runs.direct)}\n  Distill.codes models: ${formatModels(report.runs.distill)}\n  Direct effort setting: ${report.runs.direct.reasoning_effort}\n  Distill.codes effort setting: ${report.runs.distill.reasoning_effort}\n\nResult: Direct ${formatResult(report.runs.direct)}; Distill.codes ${formatResult(report.runs.distill)}`;
+  const warning = usesSonnet(report) ? `\n\n\x1b[1;33m${SONNET_WARNING}\x1b[0m` : "";
+  return `Benchmark summary\nComparison: ${formatComparisonStatus(report.comparison)}${warning}\n\n${table.toString()}\n\nRuntime\n  Direct primary: ${formatPrimaryRuntime(report.runs.direct)}\n  Distill.codes primary: ${formatPrimaryRuntime(report.runs.distill)}\n  Direct models: ${formatModels(report.runs.direct)}\n  Distill.codes models: ${formatModels(report.runs.distill)}\n  Direct effort setting: ${report.runs.direct.reasoning_effort}\n  Distill.codes effort setting: ${report.runs.distill.reasoning_effort}\n\nResult: Direct ${formatResult(report.runs.direct)}; Distill.codes ${formatResult(report.runs.distill)}`;
+}
+
+function renderMarkdownModelWarning(report) {
+  return usesSonnet(report) ? `> [!WARNING]\n> ${SONNET_WARNING}\n` : "";
+}
+
+function usesSonnet(report) {
+  return Object.values(report.runs ?? {}).some((run) =>
+    [run.model, run.primary_model?.model, run.primary_model?.canonical_model, ...(run.models ?? [])].some(
+      (model) => typeof model === "string" && model.toLowerCase().includes("sonnet")
+    )
+  );
 }
 
 function renderMarkdownRows(comparison) {

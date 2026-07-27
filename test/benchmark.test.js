@@ -70,6 +70,7 @@ test("benchmark uses acceptEdits by default", async () => {
   const consoleSummary = renderConsoleSummary(report);
   assert.match(consoleSummary, /Output tokens/);
   assert.doesNotMatch(consoleSummary, /cost|USD|\$0\.842|\$0\.487/i);
+  assert.doesNotMatch(consoleSummary, /Sonnet is not recommended/);
   assert.match(await readFile(join(runRoot, "share.md"), "utf8"), /Nothing was uploaded by the CLI/);
   await assertPrivateArtifacts(runRoot);
 
@@ -107,6 +108,29 @@ test("benchmark uses acceptEdits by default", async () => {
   assert.equal(directArgs.includes("--effort"), false);
   assert.equal(distillArgs.includes("--model"), false);
   assert.equal(distillArgs.includes("--effort"), false);
+});
+
+test("benchmark warns about Sonnet in report and console", async () => {
+  const root = await mkdtemp(join(tmpdir(), "distill-bench-"));
+  const home = await mkdtemp(join(tmpdir(), "distill-home-"));
+  const fakeClaude = join(root, "fake-claude.mjs");
+  await writeFile(fakeClaude, fakeClaudeSource({ modelName: "Claude-Sonnet-5[1m]" }));
+  await chmod(fakeClaude, 0o755);
+
+  const { runRoot, report } = await runBenchmark({
+    home,
+    proxyURL: "https://proxy.distill.codes/key123456/essential/anthropic",
+    claudeBin: fakeClaude,
+    outputDir: join(root, "out"),
+    timeoutMs: 10_000
+  });
+
+  const warning =
+    /Sonnet is not recommended for this benchmark because its Distill\.codes gains are typically small and unstable\. Use Fable or Opus with xhigh effort/;
+  assert.match(await readFile(join(runRoot, "report.md"), "utf8"), /> \[!WARNING\]/);
+  assert.match(await readFile(join(runRoot, "report.md"), "utf8"), warning);
+  assert.match(renderConsoleSummary(report), /\x1b\[1;33mWARNING:/);
+  assert.match(renderConsoleSummary(report), warning);
 });
 
 test("benchmark preserves configured model and effort without CLI overrides", async () => {
@@ -324,6 +348,7 @@ function fakeClaudeSource(options = {}) {
   const distillContextWindow = options.distillContextWindow ?? 1_000_000;
   const directOutputOffset = options.directOutputOffset ?? 0;
   const distillOutputOffset = options.distillOutputOffset ?? 0;
+  const modelName = options.modelName ?? "fake-claude";
   return `#!/usr/bin/env node
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -338,9 +363,10 @@ const isDistill = settings.env?.ANTHROPIC_BASE_URL?.includes("distill.codes");
 const outputTokens = isDistill ? 60 : 100;
 const helperOutputTokens = isDistill ? ${distillOutputOffset} : ${directOutputOffset};
 const includeHelper = helperOutputTokens > 0;
+const modelName = ${JSON.stringify(modelName)};
 const modelUsage = {
-  "fake-claude": {
-    canonicalModel: "fake-claude",
+  [modelName]: {
+    canonicalModel: modelName,
     contextWindow: isDistill ? ${distillContextWindow} : ${directContextWindow},
     maxOutputTokens: 64000,
     inputTokens: 10,
@@ -364,7 +390,7 @@ if (includeHelper) {
     provider: "firstParty"
   };
 }
-console.log(JSON.stringify({ type: "system", subtype: "init", model: "fake-claude" }));
+console.log(JSON.stringify({ type: "system", subtype: "init", model: modelName }));
 const benchmarkResult = {
   type: "result",
   subtype: "success",
