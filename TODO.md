@@ -5,4 +5,3 @@
   results store.
 - Add custom benchmark runs against a user-provided repository with a
   user-provided prompt.
-- Publish `distill-codes` to npm after the GitHub npx preview is stable.

@@ -1,8 +1,12 @@
 import { Command } from "commander";
+import { createRequire } from "node:module";
 import { clearBaseURL, disableProxy, enableProxy } from "./claude-settings.js";
-import { runBenchmark } from "./benchmark.js";
+import { renderConsoleSummary, runBenchmark } from "./benchmark.js";
 import { preflightProxy } from "./preflight.js";
 import { normalizeProxyInput, redactProxyURL } from "./proxy-url.js";
+
+const require = createRequire(import.meta.url);
+const { version } = require("../package.json");
 
 export async function main(argv = process.argv, dependencies = {}) {
   const benchmark = dependencies.runBenchmark ?? runBenchmark;
@@ -12,7 +16,7 @@ export async function main(argv = process.argv, dependencies = {}) {
   program
     .name("distill-codes")
     .description("Distill.codes setup and benchmark helper CLI.")
-    .version("0.1.0");
+    .version(version);
 
   program
     .command("bench")
@@ -40,12 +44,11 @@ export async function main(argv = process.argv, dependencies = {}) {
           log(`Running ${name === "direct" ? "direct" : "Distill.codes"} benchmark...`);
         }
       });
+      log(renderConsoleSummary(report));
       log(`Report: ${runRoot}/report.md`);
       if (sharePath) {
         log(`Share helper: ${sharePath}`);
       }
-      log(`Direct passed: ${report.runs.direct.ok ? "yes" : "no"}`);
-      log(`Distill passed: ${report.runs.distill.ok ? "yes" : "no"}`);
     });
 
   program

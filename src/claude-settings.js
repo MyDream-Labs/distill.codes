@@ -68,13 +68,21 @@ export async function clearBaseURL(options = {}) {
 }
 
 export async function envForTemporarySettings(home = homedir()) {
+  return (await configurationForTemporarySettings(home)).env;
+}
+
+export async function configurationForTemporarySettings(home = homedir()) {
   const settings = await readSettings(claudePaths(home).settings);
   ensureEnvObject(settings, claudePaths(home).settings, { create: false });
-  return { ...(settings.env ?? {}) };
+  return {
+    env: { ...(settings.env ?? {}) },
+    model: typeof settings.model === "string" ? settings.model : null,
+    effort: typeof settings.effortLevel === "string" ? settings.effortLevel : null
+  };
 }
 
 export async function writeTemporarySettings(file, env) {
-  await writeJSONAtomic(file, { env }, 0o600);
+  await writeJSONAtomic(file, { disableAllHooks: true, env }, 0o600);
 }
 
 export async function readSettings(file, options = {}) {

@@ -2,7 +2,8 @@ import { spawn } from "node:child_process";
 import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { envForTemporarySettings, writeTemporarySettings } from "./claude-settings.js";
+import Table from "cli-table3";
+import { configurationForTemporarySettings, writeTemporarySettings } from "./claude-settings.js";
 import { redactProxyURL } from "./proxy-url.js";
 
 const DEFAULT_PROMPT = `You are in a fresh directory. Implement a minimal Node.js CLI secret scanner.
@@ -32,10 +33,11 @@ export async function runBenchmark(options) {
   await makePrivateDir(runRoot);
   await writePrivateFile(join(runRoot, "prompt.txt"), prompt);
 
-  const baseEnv = await envForTemporarySettings(options.home);
+  const configuration = await configurationForTemporarySettings(options.home);
+  const baseEnv = configuration.env;
   const planned = {
-    model: options.model ?? baseEnv.ANTHROPIC_MODEL ?? "default/unknown",
-    effort: options.effort ?? baseEnv.CLAUDE_CODE_DEFAULT_EFFORT ?? "default/unknown"
+    model: options.model ?? baseEnv.ANTHROPIC_MODEL ?? configuration.model ?? "Claude Code default",
+    effort: options.effort ?? baseEnv.CLAUDE_CODE_EFFORT_LEVEL ?? configuration.effort ?? "Claude Code default"
   };
   options.onPlan?.(planned);
 
@@ -44,8 +46,9 @@ export async function runBenchmark(options) {
     runRoot,
     prompt,
     proxyURL: "",
-    env: { ...baseEnv, ANTHROPIC_BASE_URL: "" },
+    env: isolatedBenchmarkEnv(baseEnv, ""),
     options,
+    planned,
     customPrompt
   });
   const distill = await runCase({
@@ -53,8 +56,9 @@ export async function runBenchmark(options) {
     runRoot,
     prompt,
     proxyURL: options.proxyURL,
-    env: { ...baseEnv, ANTHROPIC_BASE_URL: options.proxyURL },
+    env: isolatedBenchmarkEnv(baseEnv, options.proxyURL),
     options,
+    planned,
     customPrompt
   });
 
@@ -65,6 +69,10 @@ export async function runBenchmark(options) {
     prompt_file: options.promptFile ?? null,
     proxy_url: redactProxyURL(options.proxyURL),
     planned,
+    cost: {
+      source: "claude_code_total_cost_usd",
+      note: "Claude Code-reported estimate; includes input, cache, and output usage and may not match billing."
+    },
     runs: { direct, distill },
     comparison: compareRuns(direct, distill)
   };
@@ -78,7 +86,7 @@ export async function runBenchmark(options) {
   return { runRoot, report, sharePath };
 }
 
-async function runCase({ name, runRoot, prompt, proxyURL, env, options, customPrompt }) {
+async function runCase({ name, runRoot, prompt, proxyURL, env, options, planned, customPrompt }) {
   const workdir = join(runRoot, name);
   await makePrivateDir(workdir);
   await writePrivateFile(join(workdir, "TASK.md"), prompt);
@@ -89,6 +97,8 @@ async function runCase({ name, runRoot, prompt, proxyURL, env, options, customPr
 
   const args = [
     "-p",
+    "--setting-sources",
+    "user",
     "--output-format",
     "json",
     "--no-session-persistence",
@@ -109,7 +119,8 @@ async function runCase({ name, runRoot, prompt, proxyURL, env, options, customPr
   options.onRunStart?.(name);
   const result = await runCommand(options.claudeBin ?? "claude", args, {
     cwd: workdir,
-    timeoutMs: options.timeoutMs ?? 30 * 60 * 1000
+    timeoutMs: options.timeoutMs ?? 30 * 60 * 1000,
+    baseURL: env.ANTHROPIC_BASE_URL
   });
   await rm(tempDir, { recursive: true, force: true });
 
@@ -119,16 +130,29 @@ async function runCase({ name, runRoot, prompt, proxyURL, env, options, customPr
   const parsed = parseJSONOutput(result.stdout);
   const verifier = customPrompt ? { ok: null, mode: "manual", message: "Custom prompt verification is manual." } : await verifySecretScanner(workdir);
   const files = await collectFiles(workdir);
+  const modelUsage = extractModelUsage(parsed);
+  const primaryModel = selectPrimaryModel(modelUsage);
+  const models = [...new Set(modelUsage.map(({ canonical_model }) => canonical_model))];
+  const usage = extractUsage(parsed);
 
   return {
     name,
     proxy_url: proxyURL ? redactProxyURL(proxyURL) : null,
+    proxy_enabled: Boolean(proxyURL),
     ok: result.status === 0 && verifier.ok !== false,
     exit_status: result.status,
     duration_ms: Date.now() - startedAt,
-    model: findFirstKey(parsed, ["model"]) ?? options.model ?? "default/unknown",
-    effort: options.effort ?? "default/unknown",
-    usage: extractUsage(parsed),
+    model: models.join(", ") || options.model || "not reported",
+    models,
+    model_usage: modelUsage,
+    primary_model: primaryModel,
+    reasoning_effort: planned.effort,
+    speed: findFirstKey(parsed, ["speed"]),
+    turns: findFirstNumber(parsed, ["num_turns", "numTurns"]),
+    usage: {
+      output_tokens: sumModelOutputTokens(modelUsage) ?? usage?.output_tokens ?? null
+    },
+    price_usd: findFirstNumber(parsed, ["total_cost_usd", "totalCostUsd"]),
     verifier,
     files: files.length,
     loc: await countLOC(files),
@@ -137,10 +161,22 @@ async function runCase({ name, runRoot, prompt, proxyURL, env, options, customPr
   };
 }
 
+function isolatedBenchmarkEnv(baseEnv, baseURL) {
+  return {
+    ...baseEnv,
+    ANTHROPIC_BASE_URL: baseURL,
+    CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
+    CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1"
+  };
+}
+
 async function runCommand(command, args, options) {
   return await new Promise((resolve) => {
     const env = { ...process.env };
     delete env.ANTHROPIC_BASE_URL;
+    if (options.baseURL) {
+      env.ANTHROPIC_BASE_URL = options.baseURL;
+    }
     const child = spawn(command, args, {
       cwd: options.cwd,
       env,
@@ -253,10 +289,7 @@ function extractUsage(value) {
     return null;
   }
   return {
-    input_tokens: usage.input_tokens ?? usage.inputTokens ?? null,
-    output_tokens: usage.output_tokens ?? usage.outputTokens ?? null,
-    cache_creation_input_tokens: usage.cache_creation_input_tokens ?? null,
-    cache_read_input_tokens: usage.cache_read_input_tokens ?? null
+    output_tokens: usage.output_tokens ?? usage.outputTokens ?? null
   };
 }
 
@@ -294,41 +327,232 @@ function findFirstKey(value, keys) {
   return null;
 }
 
+function findFirstNumber(value, keys) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  for (const key of keys) {
+    if (typeof value[key] === "number" && Number.isFinite(value[key])) {
+      return value[key];
+    }
+  }
+  for (const child of Object.values(value)) {
+    const found = Array.isArray(child) ? child.map((item) => findFirstNumber(item, keys)).find((item) => item != null) : findFirstNumber(child, keys);
+    if (found != null) {
+      return found;
+    }
+  }
+  return null;
+}
+
+function extractModelUsage(value) {
+  const modelUsage = findFirstObject(value, "modelUsage");
+  if (!modelUsage) {
+    return [];
+  }
+  return Object.entries(modelUsage).map(([model, usage]) => ({
+    model,
+    canonical_model: usage?.canonicalModel ?? model,
+    context_window: usage?.contextWindow ?? null,
+    max_output_tokens: usage?.maxOutputTokens ?? null,
+    input_tokens: usage?.inputTokens ?? null,
+    cache_creation_input_tokens: usage?.cacheCreationInputTokens ?? null,
+    cache_read_input_tokens: usage?.cacheReadInputTokens ?? null,
+    output_tokens: usage?.outputTokens ?? null,
+    cost_usd: usage?.costUSD ?? null,
+    provider: usage?.provider ?? null
+  }));
+}
+
+function selectPrimaryModel(modelUsage) {
+  return modelUsage.toSorted((left, right) => (right.output_tokens ?? 0) - (left.output_tokens ?? 0))[0] ?? null;
+}
+
+function sumModelOutputTokens(modelUsage) {
+  const values = modelUsage.map(({ output_tokens }) => output_tokens).filter((value) => typeof value === "number" && Number.isFinite(value));
+  return values.length ? values.reduce((total, value) => total + value, 0) : null;
+}
+
+function findFirstObject(value, key) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  if (value[key] && typeof value[key] === "object" && !Array.isArray(value[key])) {
+    return value[key];
+  }
+  for (const child of Object.values(value)) {
+    const found = Array.isArray(child) ? child.map((item) => findFirstObject(item, key)).find(Boolean) : findFirstObject(child, key);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
+}
+
 function compareRuns(direct, distill) {
+  const compatibility = compareRuntime(direct, distill);
   return {
-    duration_ms_delta: distill.duration_ms - direct.duration_ms,
-    loc_delta: distill.loc - direct.loc,
-    files_delta: distill.files - direct.files,
-    output_tokens_delta:
-      direct.usage?.output_tokens != null && distill.usage?.output_tokens != null
-        ? distill.usage.output_tokens - direct.usage.output_tokens
-        : null
+    ...compatibility,
+    output_tokens: compareMetric(direct.usage?.output_tokens, distill.usage?.output_tokens, compatibility.comparable),
+    duration_ms: compareMetric(direct.duration_ms, distill.duration_ms, compatibility.comparable),
+    turns: compareMetric(direct.turns, distill.turns, compatibility.comparable),
+    loc: compareMetric(direct.loc, distill.loc, compatibility.comparable),
+    files: compareMetric(direct.files, distill.files, compatibility.comparable),
+    price_usd: compareMetric(direct.price_usd, distill.price_usd, compatibility.comparable)
   };
 }
 
+function compareRuntime(direct, distill) {
+  const directModel = direct.primary_model;
+  const distillModel = distill.primary_model;
+  const reasons = [];
+  if (!directModel || !distillModel) {
+    reasons.push("primary model was not reported by Claude Code");
+  } else {
+    if (directModel.canonical_model !== distillModel.canonical_model) {
+      reasons.push(`primary models differ (${directModel.canonical_model} vs ${distillModel.canonical_model})`);
+    }
+    if (directModel.context_window == null || distillModel.context_window == null) {
+      reasons.push("context window was not reported by Claude Code");
+    } else if (directModel.context_window !== distillModel.context_window) {
+      reasons.push(`context windows differ (${formatInteger(directModel.context_window)} vs ${formatInteger(distillModel.context_window)})`);
+    }
+    if (directModel.max_output_tokens == null || distillModel.max_output_tokens == null) {
+      reasons.push("max output tokens were not reported by Claude Code");
+    } else if (directModel.max_output_tokens !== distillModel.max_output_tokens) {
+      reasons.push(`max output tokens differ (${formatInteger(directModel.max_output_tokens)} vs ${formatInteger(distillModel.max_output_tokens)})`);
+    }
+  }
+  return { comparable: reasons.length === 0, reasons };
+}
+
+function compareMetric(direct, distill, comparable) {
+  if (!comparable || direct == null || distill == null) {
+    return { direct: direct ?? null, distill: distill ?? null, delta: null, percent: null };
+  }
+  const delta = distill - direct;
+  return {
+    direct,
+    distill,
+    delta,
+    percent: direct === 0 ? null : roundToOneDecimal((delta / direct) * 100)
+  };
+}
+
+function roundToOneDecimal(value) {
+  return Math.round(value * 10) / 10;
+}
+
 function renderMarkdown(report) {
-  const rows = [report.runs.direct, report.runs.distill]
-    .map(
-      (run) =>
-        `| ${run.name} | ${run.ok ? "yes" : "no"} | ${Math.round(run.duration_ms / 1000)}s | ${run.files} | ${run.loc} | ${run.usage?.input_tokens ?? "-"} | ${run.usage?.output_tokens ?? "-"} |`
-    )
-    .join("\n");
   return `# Distill.codes Benchmark Report
 
 - Task: ${report.task}
 - Proxy: ${report.proxy_url}
 - Started: ${report.started_at}
+- Comparison: ${formatComparisonStatus(report.comparison)}
+- Cost: Claude Code-reported estimate from \`total_cost_usd\`; includes input, cache, and output usage and may not match billing.
 
-| Run | Passed | Time | Files | LOC | Input tokens | Output tokens |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-${rows}
+| Metric | Direct | Distill.codes | Delta | Change |
+| --- | ---: | ---: | ---: | ---: |
+${renderMarkdownRows(report.comparison)}
 
-## Comparison
+## Result
 
-- LOC delta: ${report.comparison.loc_delta}
-- Files delta: ${report.comparison.files_delta}
-- Output token delta: ${report.comparison.output_tokens_delta ?? "unknown"}
+- Direct: ${formatResult(report.runs.direct)}
+- Distill.codes: ${formatResult(report.runs.distill)}
+
+## Runtime
+
+| Run | Primary model | Context | Max output | All models | Effort setting | Speed |
+| --- | --- | ---: | ---: | --- | --- | --- |
+| Direct | ${formatPrimaryModel(report.runs.direct)} | ${formatInteger(report.runs.direct.primary_model?.context_window)} | ${formatInteger(report.runs.direct.primary_model?.max_output_tokens)} | ${formatModels(report.runs.direct)} | ${report.runs.direct.reasoning_effort} | ${report.runs.direct.speed ?? "not reported"} |
+| Distill.codes | ${formatPrimaryModel(report.runs.distill)} | ${formatInteger(report.runs.distill.primary_model?.context_window)} | ${formatInteger(report.runs.distill.primary_model?.max_output_tokens)} | ${formatModels(report.runs.distill)} | ${report.runs.distill.reasoning_effort} | ${report.runs.distill.speed ?? "not reported"} |
 `;
+}
+
+export function renderConsoleSummary(report) {
+  const table = new Table({
+    head: ["Metric", "Direct", "Distill.codes", "Delta", "Change"],
+    colAligns: ["left", "right", "right", "right", "right"],
+    style: { head: [], border: [] }
+  });
+  for (const [name, comparison, format] of summaryMetrics(report.comparison)) {
+    table.push([
+      name,
+      format(comparison.direct),
+      format(comparison.distill),
+      formatComparisonDelta(comparison.delta, format),
+      formatPercent(comparison.percent)
+    ]);
+  }
+  return `Benchmark summary\nComparison: ${formatComparisonStatus(report.comparison)}\n\n${table.toString()}\n\nCost source: Claude Code total_cost_usd (reported estimate; includes cache usage and may not match billing)\n\nRuntime\n  Direct primary: ${formatPrimaryRuntime(report.runs.direct)}\n  Distill.codes primary: ${formatPrimaryRuntime(report.runs.distill)}\n  Direct models: ${formatModels(report.runs.direct)}\n  Distill.codes models: ${formatModels(report.runs.distill)}\n  Direct effort setting: ${report.runs.direct.reasoning_effort}\n  Distill.codes effort setting: ${report.runs.distill.reasoning_effort}\n\nResult: Direct ${formatResult(report.runs.direct)}; Distill.codes ${formatResult(report.runs.distill)}`;
+}
+
+function renderMarkdownRows(comparison) {
+  return summaryMetrics(comparison)
+    .map(([name, metric, format]) => `| ${name} | ${format(metric.direct)} | ${format(metric.distill)} | ${formatComparisonDelta(metric.delta, format)} | ${formatPercent(metric.percent)} |`)
+    .join("\n");
+}
+
+function summaryMetrics(comparison) {
+  return [
+    ["Output tokens", comparison.output_tokens, formatInteger],
+    ["Time", comparison.duration_ms, formatDuration],
+    ["Turns", comparison.turns, formatInteger],
+    ["LOC", comparison.loc, formatInteger],
+    ["Files", comparison.files, formatInteger],
+    ["Reported cost (USD)", comparison.price_usd, formatPrice]
+  ];
+}
+
+function formatResult(run) {
+  return run.ok ? "passed" : "failed";
+}
+
+function formatModels(run) {
+  return run.models?.length ? run.models.join(", ") : run.model ?? "not reported";
+}
+
+function formatPrimaryModel(run) {
+  return run.primary_model?.canonical_model ?? "not reported";
+}
+
+function formatPrimaryRuntime(run) {
+  const model = run.primary_model;
+  if (!model) {
+    return "not reported";
+  }
+  return `${model.canonical_model} (${formatInteger(model.context_window)} context, ${formatInteger(model.max_output_tokens)} max output)`;
+}
+
+function formatComparisonStatus(comparison) {
+  return comparison.comparable ? "comparable" : `not comparable (${comparison.reasons.join("; ")})`;
+}
+
+function formatInteger(value) {
+  return value == null ? "n/a" : value.toLocaleString("en-US");
+}
+
+function formatDuration(value) {
+  return value == null ? "n/a" : `${(value / 1000).toFixed(1)}s`;
+}
+
+function formatPrice(value) {
+  return value == null ? "n/a" : `$${value.toFixed(3)}`;
+}
+
+function formatComparisonDelta(value, format) {
+  if (value == null) {
+    return "n/a";
+  }
+  if (value === 0) {
+    return format(value);
+  }
+  return `${value > 0 ? "+" : "-"}${format(Math.abs(value))}`;
+}
+
+function formatPercent(value) {
+  return value == null ? "n/a" : `${value > 0 ? "+" : ""}${value.toFixed(1)}%`;
 }
 
 function renderShareMarkdown(report) {
@@ -355,9 +579,12 @@ ${text}
 function shareText(report) {
   const direct = report.runs.direct;
   const distill = report.runs.distill;
-  const outputDelta = report.comparison.output_tokens_delta;
+  if (!report.comparison.comparable) {
+    return `I ran the Distill.codes Claude Code benchmark. Direct: ${direct.ok ? "passed" : "failed"}, Distill.codes: ${distill.ok ? "passed" : "failed"}. The runs were not comparable because their runtime configurations differed.`;
+  }
+  const outputDelta = report.comparison.output_tokens.delta;
   const outputSummary = outputDelta == null ? "output token delta unavailable" : `output token delta ${formatDelta(outputDelta)}`;
-  return `I ran the Distill.codes Claude Code benchmark. Direct: ${direct.ok ? "passed" : "failed"}, Distill.codes: ${distill.ok ? "passed" : "failed"}, ${outputSummary}, LOC delta ${formatDelta(report.comparison.loc_delta)}. Results vary by task.`;
+  return `I ran the Distill.codes Claude Code benchmark. Direct: ${direct.ok ? "passed" : "failed"}, Distill.codes: ${distill.ok ? "passed" : "failed"}, ${outputSummary}, LOC delta ${formatDelta(report.comparison.loc.delta)}. Results vary by task.`;
 }
 
 function formatDelta(value) {

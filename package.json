@@ -1,6 +1,6 @@
 {
   "name": "distill-codes",
-  "version": "0.1.0",
+  "version": "0.1.5",
   "private": false,
   "license": "Apache-2.0",
   "description": "Distill.codes setup and benchmark helper CLI.",
@@ -37,6 +37,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "cli-table3": "^0.6.5",
     "commander": "^14.0.2"
   }
 }

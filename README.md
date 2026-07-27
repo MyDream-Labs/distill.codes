@@ -122,6 +122,11 @@ distill-codes-bench/<timestamp>/direct
 distill-codes-bench/<timestamp>/distill
 ```
 
+Benchmark sessions do not resume or persist Claude conversations. They load
+user settings for the saved model and effort, while disabling project/local
+settings, CLAUDE.md files, auto-memory, and hooks for a reproducible task
+context.
+
 The default task asks Claude Code to implement a tiny dependency-free secret
 scanner. A local verifier checks the result automatically.
 
@@ -132,7 +137,10 @@ choose another mode explicitly:
 npx distill-codes bench <proxy-key> --permission-mode bypassPermissions
 ```
 
-Optional model and effort overrides:
+By default, the benchmark does not select or change the Claude model or effort
+level. Both runs use the normal Claude Code settings for a new session.
+
+Optional explicit overrides:
 
 ```sh
 npx distill-codes bench <proxy-key> --model fable --effort xhigh
@@ -172,10 +180,21 @@ distill-codes-bench/<timestamp>/report.md
 The report includes:
 
 - pass/fail status;
-- elapsed time;
+- elapsed time and Claude Code turns;
 - files and LOC generated;
-- input and output token usage when Claude Code exposes it;
-- direct-vs-Distill deltas.
+- output token usage and Claude Code-reported cost when Claude Code exposes them;
+- actual primary model, context window, maximum output, and all used models when Claude Code exposes them;
+- the configured effort value and runtime speed when available;
+- direct and Distill.codes values, plus absolute and percentage changes when the runtime configurations match.
+
+The terminal prints the same aligned comparison table as `report.md`.
+If the primary model, context window, or maximum output differs, the report
+marks the runs as not comparable and omits misleading deltas.
+
+Reported cost comes from Claude Code's `total_cost_usd`. It includes input,
+cache, and output usage, but is an estimate and may not match an API invoice or
+subscription charge. Per-model cache and cost details remain available in
+`report.json` without adding input-token rows to the console table.
 
 ## Security and Privacy
 
