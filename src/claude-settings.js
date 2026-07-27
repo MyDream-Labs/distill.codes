@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { access, chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
-import { isDistillProxyURL } from "./proxy-url.js";
+import { assertDistillProxyURL, isDistillProxyURL } from "./proxy-url.js";
 
 export function claudePaths(home = homedir()) {
   const dir = join(home, ".claude");
@@ -14,18 +14,19 @@ export function claudePaths(home = homedir()) {
 }
 
 export async function enableProxy(url, options = {}) {
+  const proxyURL = assertDistillProxyURL(url).toString().replace(/\/$/, "");
   const paths = claudePaths(options.home);
   const settings = await readSettings(paths.settings);
   ensureEnvObject(settings, paths.settings);
 
   if (options.preflight) {
-    await options.preflight(url);
+    await options.preflight(proxyURL);
   }
 
   await backupSettings(paths, settings);
-  settings.env.ANTHROPIC_BASE_URL = url;
+  settings.env.ANTHROPIC_BASE_URL = proxyURL;
   await writeJSONAtomic(paths.settings, settings);
-  return { settingsPath: paths.settings, backupPath: paths.backup, url };
+  return { settingsPath: paths.settings, backupPath: paths.backup, url: proxyURL };
 }
 
 export async function disableProxy(options = {}) {

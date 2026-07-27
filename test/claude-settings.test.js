@@ -37,6 +37,27 @@ test("enable writes distill URL and full backup", async () => {
   });
 });
 
+test("enable rejects a non-Distill URL before preflight or settings writes", async () => {
+  const home = await mkdtemp(join(tmpdir(), "distill-home-"));
+  const settings = join(home, ".claude", "settings.json");
+  await writeJSON(settings, { env: { KEEP_ME: "yes" } });
+  let preflightCalled = false;
+
+  await assert.rejects(
+    enableProxy("https://attacker.example/key123456/essential/anthropic", {
+      home,
+      preflight: async () => {
+        preflightCalled = true;
+      }
+    }),
+    /distill\.codes host/
+  );
+
+  assert.equal(preflightCalled, false);
+  assert.deepEqual(await readJSON(settings), { env: { KEEP_ME: "yes" } });
+  await assert.rejects(readFile(join(home, ".claude", "settings.distill-codes-backup.json")), { code: "ENOENT" });
+});
+
 test("disable restores only previous ANTHROPIC_BASE_URL", async () => {
   const home = await mkdtemp(join(tmpdir(), "distill-home-"));
   const claudeDir = join(home, ".claude");

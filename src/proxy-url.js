@@ -17,9 +17,7 @@ export function normalizeProxyInput(input) {
   }
 
   const url = new URL(candidate);
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("Proxy URL must use http or https.");
-  }
+  assertDistillProxyURL(url);
 
   const segments = url.pathname.split("/").filter(Boolean);
   const essentialIndex = segments.findIndex(
@@ -40,12 +38,23 @@ export function isDistillProxyURL(value) {
     return false;
   }
   try {
-    const url = new URL(value);
-    const host = url.hostname.toLowerCase();
-    return (host === "distill.codes" || host.endsWith(".distill.codes")) && /\/[^/]+\/essential\/anthropic(?:\/|$)/.test(url.pathname);
+    const url = assertDistillProxyURL(value);
+    return /\/[^/]+\/essential\/anthropic(?:\/|$)/.test(url.pathname);
   } catch {
     return false;
   }
+}
+
+export function assertDistillProxyURL(value) {
+  const url = value instanceof URL ? value : new URL(value);
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("Proxy URL must use http or https.");
+  }
+  const host = url.hostname.toLowerCase();
+  if (host !== "distill.codes" && !host.endsWith(".distill.codes")) {
+    throw new Error("Proxy URL must use a distill.codes host.");
+  }
+  return url;
 }
 
 export function redactProxyURL(value) {

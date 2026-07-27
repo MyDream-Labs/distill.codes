@@ -1,10 +1,13 @@
+import { assertDistillProxyURL } from "./proxy-url.js";
+
 export async function preflightProxy(url, options = {}) {
-  const endpoint = `${url.replace(/\/$/, "")}/v1/messages`;
+  const proxyURL = assertDistillProxyURL(url);
+  const endpoint = `${proxyURL.toString().replace(/\/$/, "")}/v1/messages`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 15_000);
 
   try {
-    const response = await fetch(endpoint, {
+    const response = await (options.fetch ?? fetch)(endpoint, {
       method: "POST",
       signal: controller.signal,
       headers: {

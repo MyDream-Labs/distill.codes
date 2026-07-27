@@ -1,39 +1,39 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import http from "node:http";
 import { preflightProxy } from "../src/preflight.js";
 
 test("preflight accepts provider boundary 4xx", async () => {
-  await withServer(async (request, response) => {
-    assert.equal(request.url, "/key123456/essential/anthropic/v1/messages");
-    assert.equal(request.headers["anthropic-version"], "2023-06-01");
-    response.writeHead(401, { "content-type": "application/json" });
-    response.end(JSON.stringify({ error: { type: "authentication_error" } }));
-  }, async (baseURL) => {
-    const result = await preflightProxy(`${baseURL}/key123456/essential/anthropic`);
-    assert.deepEqual(result, { ok: true, status: 401 });
+  const result = await preflightProxy("https://dev-proxy.distill.codes/key123456/essential/anthropic", {
+    fetch: async (url, options) => {
+      assert.equal(url, "https://dev-proxy.distill.codes/key123456/essential/anthropic/v1/messages");
+      assert.equal(options.headers["anthropic-version"], "2023-06-01");
+      return new Response(JSON.stringify({ error: { type: "authentication_error" } }), { status: 401 });
+    }
   });
+
+  assert.deepEqual(result, { ok: true, status: 401 });
 });
 
 test("preflight rejects own proxy errors", async () => {
-  await withServer(async (_request, response) => {
-    response.writeHead(401, { "content-type": "application/json" });
-    response.end(JSON.stringify({ error: { code: "invalid_key", message: "Invalid or expired proxy key." } }));
-  }, async (baseURL) => {
-    await assert.rejects(
-      preflightProxy(`${baseURL}/key123456/essential/anthropic`),
-      /Proxy rejected the URL\/key/
-    );
-  });
+  await assert.rejects(
+    preflightProxy("https://proxy.distill.codes/key123456/essential/anthropic", {
+      fetch: async () => new Response(JSON.stringify({ error: { code: "invalid_key", message: "Invalid or expired proxy key." } }), { status: 401 })
+    }),
+    /Proxy rejected the URL\/key/
+  );
 });
 
-async function withServer(handler, run) {
-  const server = http.createServer(handler);
-  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const { port } = server.address();
-  try {
-    await run(`http://127.0.0.1:${port}`);
-  } finally {
-    await new Promise((resolve) => server.close(resolve));
-  }
-}
+test("preflight rejects a non-Distill URL without fetching it", async () => {
+  let fetchCalled = false;
+
+  await assert.rejects(
+    preflightProxy("https://attacker.example/key123456/essential/anthropic", {
+      fetch: async () => {
+        fetchCalled = true;
+      }
+    }),
+    /distill\.codes host/
+  );
+
+  assert.equal(fetchCalled, false);
+});

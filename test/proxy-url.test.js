@@ -20,6 +20,13 @@ test("normalizes full URL and copied config fragments", () => {
   );
 });
 
+test("rejects non-Distill HTTP(S) proxy URLs", () => {
+  assert.throws(
+    () => normalizeProxyInput("https://attacker.example/key123456/essential/anthropic"),
+    /distill\.codes host/
+  );
+});
+
 test("redacts proxy key", () => {
   assert.equal(
     redactProxyURL("https://proxy.distill.codes/secretkey123/essential/anthropic"),
