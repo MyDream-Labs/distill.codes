@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBenchmark } from "../src/benchmark.js";
 
-test("benchmark runs direct and distill cases with fake Claude", async () => {
+test("benchmark uses acceptEdits by default", async () => {
   const root = await mkdtemp(join(tmpdir(), "distill-bench-"));
   const home = await mkdtemp(join(tmpdir(), "distill-home-"));
   const fakeClaude = join(root, "fake-claude.mjs");
@@ -36,9 +36,39 @@ test("benchmark runs direct and distill cases with fake Claude", async () => {
 
   const directSettings = JSON.parse(await readFile(join(runRoot, "direct", "seen-settings.json"), "utf8"));
   const distillSettings = JSON.parse(await readFile(join(runRoot, "distill", "seen-settings.json"), "utf8"));
+  const directArgs = JSON.parse(await readFile(join(runRoot, "direct", "seen-args.json"), "utf8"));
+  const distillArgs = JSON.parse(await readFile(join(runRoot, "distill", "seen-args.json"), "utf8"));
   assert.equal(directSettings.env.ANTHROPIC_BASE_URL, "");
   assert.equal(distillSettings.env.ANTHROPIC_BASE_URL, "https://proxy.distill.codes/key123456/essential/anthropic");
+  assert.equal(permissionMode(directArgs), "acceptEdits");
+  assert.equal(permissionMode(distillArgs), "acceptEdits");
 });
+
+test("benchmark passes an explicit bypassPermissions override", async () => {
+  const root = await mkdtemp(join(tmpdir(), "distill-bench-"));
+  const home = await mkdtemp(join(tmpdir(), "distill-home-"));
+  const fakeClaude = join(root, "fake-claude.mjs");
+  await writeFile(fakeClaude, fakeClaudeSource());
+  await chmod(fakeClaude, 0o755);
+
+  const { runRoot } = await runBenchmark({
+    home,
+    proxyURL: "https://proxy.distill.codes/key123456/essential/anthropic",
+    claudeBin: fakeClaude,
+    outputDir: join(root, "out"),
+    timeoutMs: 10_000,
+    permissionMode: "bypassPermissions"
+  });
+
+  const directArgs = JSON.parse(await readFile(join(runRoot, "direct", "seen-args.json"), "utf8"));
+  const distillArgs = JSON.parse(await readFile(join(runRoot, "distill", "seen-args.json"), "utf8"));
+  assert.equal(permissionMode(directArgs), "bypassPermissions");
+  assert.equal(permissionMode(distillArgs), "bypassPermissions");
+});
+
+function permissionMode(args) {
+  return args[args.indexOf("--permission-mode") + 1];
+}
 
 function fakeClaudeSource() {
   return `#!/usr/bin/env node
@@ -48,6 +78,7 @@ import { join } from "node:path";
 const settingsFile = process.argv[process.argv.indexOf("--settings") + 1];
 const settings = JSON.parse(readFileSync(settingsFile, "utf8"));
 writeFileSync(join(process.cwd(), "seen-settings.json"), JSON.stringify(settings, null, 2));
+writeFileSync(join(process.cwd(), "seen-args.json"), JSON.stringify(process.argv.slice(2), null, 2));
 writeFileSync(join(process.cwd(), "scan-secrets.mjs"), scannerSource());
 const isDistill = settings.env?.ANTHROPIC_BASE_URL?.includes("distill.codes");
 console.log(JSON.stringify({ model: "fake-claude", usage: { input_tokens: 1000, output_tokens: isDistill ? 60 : 100 } }));

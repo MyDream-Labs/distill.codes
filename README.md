@@ -107,6 +107,13 @@ distill-codes-bench/<timestamp>/distill
 The default task asks Claude Code to implement a tiny dependency-free secret
 scanner. A local verifier checks the result automatically.
 
+Benchmarks use Claude Code's `acceptEdits` permission mode by default. To
+choose another mode explicitly:
+
+```sh
+npx distill-codes bench <proxy-key> --permission-mode bypassPermissions
+```
+
 Optional model and effort overrides:
 
 ```sh

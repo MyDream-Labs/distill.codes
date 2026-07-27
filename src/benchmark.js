@@ -92,7 +92,7 @@ async function runCase({ name, runRoot, prompt, proxyURL, env, options, customPr
     "json",
     "--no-session-persistence",
     "--permission-mode",
-    options.permissionMode ?? "bypassPermissions",
+    options.permissionMode ?? "acceptEdits",
     "--settings",
     settingsFile
   ];

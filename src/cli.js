@@ -20,7 +20,7 @@ export async function main(argv = process.argv) {
     .option("--output-dir <path>", "benchmark output directory")
     .option("--claude-bin <path>", "Claude Code binary", "claude")
     .option("--timeout-ms <ms>", "per-run timeout", parseNumber)
-    .option("--permission-mode <mode>", "Claude permission mode", "bypassPermissions")
+    .option("--permission-mode <mode>", "Claude permission mode", "acceptEdits")
     .option("--share", "write a local social-sharing helper after the report")
     .action(async (input, options) => {
       const proxyURL = normalizeProxyInput(input);
