@@ -34,13 +34,7 @@ one.
 
 ## Quick Start
 
-Install or preview the CLI:
-
-```sh
-npx github:MyDream-Labs/distill.codes --help
-```
-
-After the npm package is published, the command will be:
+Run the published CLI:
 
 ```sh
 npx distill-codes --help
