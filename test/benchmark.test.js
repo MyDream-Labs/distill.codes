@@ -71,6 +71,28 @@ test("benchmark passes an explicit bypassPermissions override", async () => {
   assert.equal(permissionMode(distillArgs), "bypassPermissions");
 });
 
+test("benchmark records failed Claude runs and persists diagnostics", async () => {
+  const root = await mkdtemp(join(tmpdir(), "distill-bench-"));
+  const home = await mkdtemp(join(tmpdir(), "distill-home-"));
+  const fakeClaude = join(root, "failing-claude.mjs");
+  await writeFile(fakeClaude, "#!/usr/bin/env node\nconsole.error('intentional Claude failure');\nprocess.exit(17);\n");
+  await chmod(fakeClaude, 0o755);
+
+  const { runRoot, report } = await runBenchmark({
+    home,
+    proxyURL: "https://proxy.distill.codes/key123456/essential/anthropic",
+    claudeBin: fakeClaude,
+    outputDir: join(root, "out"),
+    timeoutMs: 10_000
+  });
+
+  assert.deepEqual(Object.values(report.runs).map(({ ok, exit_status }) => [ok, exit_status]), [[false, 17], [false, 17]]);
+  const persisted = JSON.parse(await readFile(join(runRoot, "report.json"), "utf8"));
+  assert.deepEqual(Object.values(persisted.runs).map(({ ok, exit_status }) => [ok, exit_status]), [[false, 17], [false, 17]]);
+  assert.equal(await readFile(join(runRoot, "direct.stderr.log"), "utf8"), "intentional Claude failure\n");
+  assert.equal(await readFile(join(runRoot, "distill.stderr.log"), "utf8"), "intentional Claude failure\n");
+});
+
 function permissionMode(args) {
   return args[args.indexOf("--permission-mode") + 1];
 }
