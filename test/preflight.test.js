@@ -37,3 +37,18 @@ test("preflight rejects a non-Distill URL without fetching it", async () => {
 
   assert.equal(fetchCalled, false);
 });
+
+test("preflight rejects an HTTP Distill URL without fetching it", async () => {
+  let fetchCalled = false;
+
+  await assert.rejects(
+    preflightProxy("http://proxy.distill.codes/key123456/essential/anthropic", {
+      fetch: async () => {
+        fetchCalled = true;
+      }
+    }),
+    /must use HTTPS/
+  );
+
+  assert.equal(fetchCalled, false);
+});

@@ -1,5 +1,5 @@
 import { constants } from "node:fs";
-import { access, chmod, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { assertDistillProxyURL, isDistillProxyURL } from "./proxy-url.js";
@@ -116,6 +116,7 @@ function ensureEnvObject(settings, file, options = {}) {
 async function backupSettings(paths, settings, options = {}) {
   await mkdir(paths.dir, { recursive: true });
   if (!options.overwrite && isDistillProxyURL(settings.env?.ANTHROPIC_BASE_URL) && (await exists(paths.backup))) {
+    await chmod(paths.backup, 0o600);
     return;
   }
   await writeJSONAtomic(paths.backup, settings, 0o600);
@@ -123,22 +124,10 @@ async function backupSettings(paths, settings, options = {}) {
 
 async function writeJSONAtomic(file, value, fallbackMode = 0o600) {
   await mkdir(dirname(file), { recursive: true });
-  const mode = await existingMode(file, fallbackMode);
   const temp = join(dirname(file), `.${basename(file)}.${process.pid}.${Date.now()}.tmp`);
-  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { mode });
-  await chmod(temp, mode);
+  await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { mode: fallbackMode });
+  await chmod(temp, fallbackMode);
   await rename(temp, file);
-}
-
-async function existingMode(file, fallbackMode) {
-  try {
-    return (await stat(file)).mode & 0o777;
-  } catch (error) {
-    if (error?.code === "ENOENT") {
-      return fallbackMode;
-    }
-    throw error;
-  }
 }
 
 async function exists(file) {

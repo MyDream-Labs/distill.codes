@@ -27,6 +27,13 @@ test("rejects non-Distill HTTP(S) proxy URLs", () => {
   );
 });
 
+test("rejects HTTP Distill URLs for new proxy configuration", () => {
+  assert.throws(
+    () => normalizeProxyInput("http://proxy.distill.codes/key123456/essential/anthropic"),
+    /must use HTTPS/
+  );
+});
+
 test("redacts proxy key", () => {
   assert.equal(
     redactProxyURL("https://proxy.distill.codes/secretkey123/essential/anthropic"),
@@ -36,5 +43,6 @@ test("redacts proxy key", () => {
 
 test("distill URL detection requires distill.codes host", () => {
   assert.equal(isDistillProxyURL("https://proxy.distill.codes/key123456/essential/anthropic"), true);
+  assert.equal(isDistillProxyURL("http://proxy.distill.codes/key123456/essential/anthropic"), true);
   assert.equal(isDistillProxyURL("https://example.com/key123456/essential/anthropic"), false);
 });

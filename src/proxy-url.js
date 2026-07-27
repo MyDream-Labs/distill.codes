@@ -38,7 +38,8 @@ export function isDistillProxyURL(value) {
     return false;
   }
   try {
-    const url = assertDistillProxyURL(value);
+    // Keep recognizing legacy HTTP settings so `disable` can remove them safely.
+    const url = parseDistillProxyURL(value, { allowHTTP: true });
     return /\/[^/]+\/essential\/anthropic(?:\/|$)/.test(url.pathname);
   } catch {
     return false;
@@ -46,9 +47,13 @@ export function isDistillProxyURL(value) {
 }
 
 export function assertDistillProxyURL(value) {
+  return parseDistillProxyURL(value);
+}
+
+function parseDistillProxyURL(value, { allowHTTP = false } = {}) {
   const url = value instanceof URL ? value : new URL(value);
-  if (url.protocol !== "https:" && url.protocol !== "http:") {
-    throw new Error("Proxy URL must use http or https.");
+  if (url.protocol !== "https:" && !(allowHTTP && url.protocol === "http:")) {
+    throw new Error("Proxy URL must use HTTPS.");
   }
   const host = url.hostname.toLowerCase();
   if (host !== "distill.codes" && !host.endsWith(".distill.codes")) {
