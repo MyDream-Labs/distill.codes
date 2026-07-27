@@ -105,6 +105,7 @@ async function runCase({ name, runRoot, prompt, proxyURL, env, options, customPr
   args.push(prompt);
 
   const startedAt = Date.now();
+  options.onRunStart?.(name);
   const result = await runCommand(options.claudeBin ?? "claude", args, {
     cwd: workdir,
     timeoutMs: options.timeoutMs ?? 30 * 60 * 1000

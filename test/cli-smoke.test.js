@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { main } from "../src/cli.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const cli = join(root, "bin", "distill-codes.js");
@@ -55,6 +56,39 @@ test("CLI smoke: enable rejects a non-Distill URL without writing settings", asy
   assert.match(result.stderr, /distill\.codes host/);
   assert.deepEqual(await readJSON(settings), original);
   await assert.rejects(readFile(join(home, ".claude", "settings.distill-codes-backup.json")), { code: "ENOENT" });
+});
+
+test("CLI bench reports progress before direct and Distill runs", async () => {
+  const messages = [];
+
+  await main(
+    ["node", "distill-codes", "bench", "key123456"],
+    {
+      preflightProxy: async () => {},
+      log: (message) => messages.push(message),
+      runBenchmark: async (options) => {
+        options.onPlan({ model: "test-model", effort: "high" });
+        options.onRunStart("direct");
+        options.onRunStart("distill");
+        return {
+          runRoot: "/tmp/bench",
+          report: { runs: { direct: { ok: true }, distill: { ok: true } } },
+          sharePath: null
+        };
+      }
+    }
+  );
+
+  assert.deepEqual(messages, [
+    "Proxy URL: https://proxy.distill.codes/<proxy-key>/essential/anthropic",
+    "Model: test-model",
+    "Effort: high",
+    "Running direct benchmark...",
+    "Running Distill.codes benchmark...",
+    "Report: /tmp/bench/report.md",
+    "Direct passed: yes",
+    "Distill passed: yes"
+  ]);
 });
 
 async function temporaryHome(t) {

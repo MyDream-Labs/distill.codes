@@ -13,6 +13,7 @@ test("benchmark uses acceptEdits by default", async () => {
   await chmod(fakeClaude, 0o755);
 
   let planned;
+  const startedRuns = [];
   const { runRoot, report } = await runBenchmark({
     home,
     proxyURL: "https://proxy.distill.codes/key123456/essential/anthropic",
@@ -22,10 +23,14 @@ test("benchmark uses acceptEdits by default", async () => {
     share: true,
     onPlan: (value) => {
       planned = value;
+    },
+    onRunStart: (name) => {
+      startedRuns.push(name);
     }
   });
 
   assert.equal(planned.model, "default/unknown");
+  assert.deepEqual(startedRuns, ["direct", "distill"]);
   assert.equal(report.runs.direct.ok, true);
   assert.equal(report.runs.distill.ok, true);
   assert.equal(report.runs.direct.usage.output_tokens, 100);

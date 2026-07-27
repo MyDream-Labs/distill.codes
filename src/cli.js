@@ -4,7 +4,10 @@ import { runBenchmark } from "./benchmark.js";
 import { preflightProxy } from "./preflight.js";
 import { normalizeProxyInput, redactProxyURL } from "./proxy-url.js";
 
-export async function main(argv = process.argv) {
+export async function main(argv = process.argv, dependencies = {}) {
+  const benchmark = dependencies.runBenchmark ?? runBenchmark;
+  const preflight = dependencies.preflightProxy ?? preflightProxy;
+  const log = dependencies.log ?? console.log;
   const program = new Command();
   program
     .name("distill-codes")
@@ -24,22 +27,25 @@ export async function main(argv = process.argv) {
     .option("--share", "write a local social-sharing helper after the report")
     .action(async (input, options) => {
       const proxyURL = normalizeProxyInput(input);
-      await preflightProxy(proxyURL);
-      console.log(`Proxy URL: ${redactProxyURL(proxyURL)}`);
-      const { runRoot, report, sharePath } = await runBenchmark({
+      await preflight(proxyURL);
+      log(`Proxy URL: ${redactProxyURL(proxyURL)}`);
+      const { runRoot, report, sharePath } = await benchmark({
         ...options,
         proxyURL,
         onPlan: (planned) => {
-          console.log(`Model: ${planned.model}`);
-          console.log(`Effort: ${planned.effort}`);
+          log(`Model: ${planned.model}`);
+          log(`Effort: ${planned.effort}`);
+        },
+        onRunStart: (name) => {
+          log(`Running ${name === "direct" ? "direct" : "Distill.codes"} benchmark...`);
         }
       });
-      console.log(`Report: ${runRoot}/report.md`);
+      log(`Report: ${runRoot}/report.md`);
       if (sharePath) {
-        console.log(`Share helper: ${sharePath}`);
+        log(`Share helper: ${sharePath}`);
       }
-      console.log(`Direct passed: ${report.runs.direct.ok ? "yes" : "no"}`);
-      console.log(`Distill passed: ${report.runs.distill.ok ? "yes" : "no"}`);
+      log(`Direct passed: ${report.runs.direct.ok ? "yes" : "no"}`);
+      log(`Distill passed: ${report.runs.distill.ok ? "yes" : "no"}`);
     });
 
   program
