@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBenchmark } from "../src/benchmark.js";
@@ -38,6 +38,7 @@ test("benchmark uses acceptEdits by default", async () => {
   assert.equal(report.comparison.output_tokens_delta, -40);
   assert.match(await readFile(join(runRoot, "report.md"), "utf8"), /Distill\.codes Benchmark Report/);
   assert.match(await readFile(join(runRoot, "share.md"), "utf8"), /Nothing was uploaded by the CLI/);
+  await assertPrivateArtifacts(runRoot);
 
   const directSettings = JSON.parse(await readFile(join(runRoot, "direct", "seen-settings.json"), "utf8"));
   const distillSettings = JSON.parse(await readFile(join(runRoot, "distill", "seen-settings.json"), "utf8"));
@@ -95,6 +96,32 @@ test("benchmark records failed Claude runs and persists diagnostics", async () =
 
 function permissionMode(args) {
   return args[args.indexOf("--permission-mode") + 1];
+}
+
+async function assertPrivateArtifacts(runRoot) {
+  for (const directory of [
+    runRoot,
+    join(runRoot, "direct"),
+    join(runRoot, "distill"),
+    join(runRoot, "direct", ".distill-verify"),
+    join(runRoot, "distill", ".distill-verify")
+  ]) {
+    assert.equal((await stat(directory)).mode & 0o777, 0o700, directory);
+  }
+  for (const file of [
+    "prompt.txt",
+    "direct/TASK.md",
+    "distill/TASK.md",
+    "direct.stdout.log",
+    "direct.stderr.log",
+    "distill.stdout.log",
+    "distill.stderr.log",
+    "report.json",
+    "report.md",
+    "share.md"
+  ]) {
+    assert.equal((await stat(join(runRoot, file))).mode & 0o777, 0o600, file);
+  }
 }
 
 function fakeClaudeSource() {

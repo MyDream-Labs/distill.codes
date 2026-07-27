@@ -164,7 +164,10 @@ The report includes:
 The CLI does not upload benchmark results.
 
 It stores benchmark prompts, logs, and reports locally in
-`./distill-codes-bench/`. Review those files before sharing them publicly.
+`./distill-codes-bench/`. Benchmark directories are restricted to the current
+user (`0700`), and the CLI-written prompt, task, log, report, and share files
+are `0600`, regardless of umask. Review those files before sharing them
+publicly.
 
 Future upload flows will be explicit opt-in.
 

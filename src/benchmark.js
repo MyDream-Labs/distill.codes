@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { envForTemporarySettings, writeTemporarySettings } from "./claude-settings.js";
@@ -28,8 +28,9 @@ export async function runBenchmark(options) {
   const prompt = options.promptFile ? await readFile(options.promptFile, "utf8") : DEFAULT_PROMPT;
   const customPrompt = Boolean(options.promptFile);
 
-  await mkdir(runRoot, { recursive: true });
-  await writeFile(join(runRoot, "prompt.txt"), prompt);
+  await makePrivateDir(outputRoot);
+  await makePrivateDir(runRoot);
+  await writePrivateFile(join(runRoot, "prompt.txt"), prompt);
 
   const baseEnv = await envForTemporarySettings(options.home);
   const planned = {
@@ -68,19 +69,19 @@ export async function runBenchmark(options) {
     comparison: compareRuns(direct, distill)
   };
 
-  await writeFile(join(runRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
-  await writeFile(join(runRoot, "report.md"), renderMarkdown(report));
+  await writePrivateFile(join(runRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`);
+  await writePrivateFile(join(runRoot, "report.md"), renderMarkdown(report));
   const sharePath = options.share ? join(runRoot, "share.md") : null;
   if (sharePath) {
-    await writeFile(sharePath, renderShareMarkdown(report));
+    await writePrivateFile(sharePath, renderShareMarkdown(report));
   }
   return { runRoot, report, sharePath };
 }
 
 async function runCase({ name, runRoot, prompt, proxyURL, env, options, customPrompt }) {
   const workdir = join(runRoot, name);
-  await mkdir(workdir, { recursive: true });
-  await writeFile(join(workdir, "TASK.md"), prompt);
+  await makePrivateDir(workdir);
+  await writePrivateFile(join(workdir, "TASK.md"), prompt);
 
   const tempDir = await mkdtemp(join(tmpdir(), "distill-codes-"));
   const settingsFile = join(tempDir, "settings.json");
@@ -112,8 +113,8 @@ async function runCase({ name, runRoot, prompt, proxyURL, env, options, customPr
   });
   await rm(tempDir, { recursive: true, force: true });
 
-  await writeFile(join(runRoot, `${name}.stdout.log`), result.stdout);
-  await writeFile(join(runRoot, `${name}.stderr.log`), result.stderr);
+  await writePrivateFile(join(runRoot, `${name}.stdout.log`), result.stdout);
+  await writePrivateFile(join(runRoot, `${name}.stderr.log`), result.stderr);
 
   const parsed = parseJSONOutput(result.stdout);
   const verifier = customPrompt ? { ok: null, mode: "manual", message: "Custom prompt verification is manual." } : await verifySecretScanner(workdir);
@@ -170,8 +171,8 @@ async function runCommand(command, args, options) {
 async function verifySecretScanner(workdir) {
   const scanner = join(workdir, "scan-secrets.mjs");
   const fixture = join(workdir, ".distill-verify");
-  await mkdir(fixture, { recursive: true });
-  await writeFile(
+  await makePrivateDir(fixture);
+  await writePrivateFile(
     join(fixture, "secrets.txt"),
     [
       "AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF",
@@ -179,7 +180,7 @@ async function verifySecretScanner(workdir) {
       "DATABASE_PASSWORD=correct-horse-battery-staple"
     ].join("\n")
   );
-  await writeFile(join(fixture, "safe.txt"), "nothing secret here\n");
+  await writePrivateFile(join(fixture, "safe.txt"), "nothing secret here\n");
 
   const result = await runCommand(process.execPath, [scanner, fixture], { cwd: workdir, timeoutMs: 10_000 });
   if (result.status !== 0) {
@@ -226,6 +227,16 @@ async function countLOC(files) {
     total += text.split(/\r?\n/).filter((line) => line.trim()).length;
   }
   return total;
+}
+
+async function makePrivateDir(path) {
+  await mkdir(path, { recursive: true, mode: 0o700 });
+  await chmod(path, 0o700);
+}
+
+async function writePrivateFile(path, contents) {
+  await writeFile(path, contents, { mode: 0o600 });
+  await chmod(path, 0o600);
 }
 
 function parseJSONOutput(stdout) {
